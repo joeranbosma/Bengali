@@ -27,3 +27,12 @@ if not os.path.exists("{}/train.csv".format(DATA_PATH)):
         print("Extracting data...")
         os.system('unzip {}/bengaliai-cv19.zip -d {}'.format(
                 DATA_PATH, DATA_PATH))
+    if not os.path.exists("{}/train_image_data_0.parquet".format(DATA_PATH)):
+        # extract zip files
+        for i in range(4):
+            for t in ['train', 'test']:
+                os.system('unzip {}/{}_image_data_{}.parquet.zip -d {}'.format(DATA_PATH, t, i, DATA_PATH))
+                os.system('rm {}/{}_image_data_{}.parquet.zip'.format(DATA_PATH, t, i))
+        # also unzip train.csv
+        os.system('unzip {}/train.csv.zip -d {}'.format(DATA_PATH, DATA_PATH))
+        os.system('rm {}/train.csv.zip'.format(DATA_PATH))
