@@ -153,7 +153,7 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
                         epochs = epochs, steps_per_epoch=train_generator.n//train_generator.batch_size,
                         validation_steps=val_generator.n//val_generator.batch_size,
                         callbacks=[lr_reduction_root, lr_reduction_vowel, lr_reduction_consonant,
-                                   global_accuracy_callback, WandbCallback()])
+                                   WandbCallback(), global_accuracy_callback])
 
     # save model online
     model.save(os.path.join(wandb.run.dir, "model_{}.h5".format(i)))
