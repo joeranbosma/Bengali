@@ -156,7 +156,7 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
                                    global_accuracy_callback, WandbCallback()])
 
     # save model online
-    model.save(os.path.join(wandb.run.dir, "model_{}.h5".format(i)))
+    model.save(os.path.join(wandb.run.dir, "model-trained.h5"))
     return model
 
 def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size):
