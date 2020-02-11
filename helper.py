@@ -32,24 +32,33 @@ import wandb
 from wandb.keras import WandbCallback
 from starter_eda_model_funcs import get_model, resize, MultiOutputDataGenerator
 from starter_eda_model_funcs import get_lr_reduction_calbacks
+from preprocessing import perform_preprocessing
 
 
 # adapted from https://github.com/keras-team/keras/issues/4506
 class GlobalAccuracyCallback(tf.keras.callbacks.Callback):
-    def __init__(self, validation_data):
-        self.validation_data = validation_data
+    def __init__(self, validation_generator):
+        self.val_gen = validation_generator
         self.accs = []
 
     def eval_acc(self):
-        x_val, y_true = self.validation_data
-        y_pred = self.model.predict(x_val)
-        global_acc = 0
-        global_weight = [0.5, 0.25, 0.25]
-        assert np.sum(global_weight) == 1., "Set weights to sum to one, for normalization"
-        for i in range(3):
-            acc = K.mean(categorical_accuracy(y_true[i], y_pred[i]))
-            global_acc += acc * global_weight[i]
+        # obtain metrics for validation set
+        self.val_gen.reset()
+        metrics = self.model.evaluate(generator_wrapper(self.val_gen), verbose=0,
+                                      steps=self.val_gen.n // self.val_gen.batch_size)
+        # the metrics will contain out_root_acc, etc. for the individual accuracies
+        metric_labels = self.model.metrics_names
         
+        # calculate global accuracy
+        global_acc = 0
+        # define weights to each part
+        global_weights = {'out_root_acc': 0.5, 'out_vowel_acc': 0.25, 'out_consonant_acc': 0.25}
+        assert np.sum(list(global_weights.values())) == 1., "Set weights to sum to one, for normalization"
+        for key, weight in global_weights.items():
+            # search for the index of the accuracy (root/vowel or consonant) in the metric list
+            idx = metric_labels.index(key)
+            global_acc += metrics[idx] * weight
+
         return global_acc
 
     def on_epoch_end(self, epoch, logs={}):
@@ -60,9 +69,38 @@ class GlobalAccuracyCallback(tf.keras.callbacks.Callback):
 
 # adapted from https://www.kaggle.com/kaushal2896/bengali-graphemes-starter-eda-multi-output-cnn
 # added WandB integration and custom datagen arguments
-def train(train_df_, datagen_args, name=None, epochs=30, model=None,
-          N_CHANNELS=1, batch_size=256, preprocess_args={'image_size': 64, 'padding': 0}):
-    IMG_SIZE = preprocess_args['image_size']
+def train_from_prep(datagen_args, name=None, epochs=30, model=None,
+                    N_CHANNELS=1, batch_size=256, preprocess_args={'image_width': 64, 'image_height': 64, 'padding': 6},
+          data_path='Data/', prep_folder='prep/'):
+    """Train a model from preprocessed images.
+        
+        Preprocessing can be done in advance, then the prep_folder should contain
+        the settings file 'config.csv' with the same settings as provided to this function.
+        If this is not the case, the preprocessing will be initiated by this function.
+        """
+    
+    # set variables and load training labels
+    image_width, image_height = preprocess_args['image_width'], preprocess_args['image_height']
+    if image_width == image_height:
+        preprocess_args['image_size'] = image_width
+    prep_path = data_path + prep_folder
+
+    # check if preprocessing has been done, and coincides with current arguments
+    if os.path.exists(prep_path + 'config.csv'):
+        # check preprocessing arguments, and convert from DataFrame to Series
+        prep_config = pd.read_csv(prep_path + 'config.csv', index_col=0, header=None).iloc[:,0]
+        if not prep_config.equals(pd.Series(preprocess_args)):
+            # preprocessing arguments do not coince, so
+            # preprocessing needs to be done with new arguments
+            print("Preprocessing arguments changed. Performing data preprocessing...")
+            perform_preprocessing(preprocess_args, data_path=data_path, prep_folder=prep_folder, out='png')
+    else:
+        print("Performing data preprocessing...")
+        perform_preprocessing(preprocess_args, data_path=data_path, prep_folder=prep_folder, out='png')
+
+
+    # read train labels
+    train_df_ = pd.read_csv(f'{data_path}/train.csv')
     
     # set up config
     config = datagen_args.copy()
@@ -72,162 +110,90 @@ def train(train_df_, datagen_args, name=None, epochs=30, model=None,
     wandb.init(project='mlip', name=name, config=config)
 
     if model == None:
-        model = get_model(img_size=IMG_SIZE)
-
-    histories = []
-    for i in range(4):
-        train_df = pd.merge(pd.read_parquet(f'Data/train_image_data_{i}.parquet'), train_df_, on='image_id').drop(['image_id'], axis=1)
-        
-        X_train = train_df.drop(['grapheme_root', 'vowel_diacritic', 'consonant_diacritic'], axis=1)
-		# Stores it as float32 (but starts as int8, which is more memory efficient)
-		# This is a normalization, which you can also do at the end, so that the 
-		# processing done after this line does not work with float32 but with int8
-		# 255 = scale colour range to 0 to 1.
-		# Preprocessing 4 blocks takes approx 4x1 minute
-        X_train = resize_padding(X_train, resize_size=IMG_SIZE, padding=preprocess_args['padding'])/255
-        
-        # CNN takes images in shape `(batch_size, h, w, channels)`, so reshape the images
-        X_train = X_train.values.reshape(-1, IMG_SIZE, IMG_SIZE, N_CHANNELS)
-        
-        Y_train_root = pd.get_dummies(train_df['grapheme_root']).values
-        Y_train_vowel = pd.get_dummies(train_df['vowel_diacritic']).values
-        Y_train_consonant = pd.get_dummies(train_df['consonant_diacritic']).values
-
-        print(f'Training images: {X_train.shape}')
-        print(f'Training labels root: {Y_train_root.shape}')
-        print(f'Training labels vowel: {Y_train_vowel.shape}')
-        print(f'Training labels consonants: {Y_train_consonant.shape}')
-
-        # Divide the data into training and validation set
-        x_train, x_test, y_train_root, y_test_root, y_train_vowel, y_test_vowel, y_train_consonant, y_test_consonant = train_test_split(X_train, Y_train_root, Y_train_vowel, Y_train_consonant, test_size=0.08, random_state=666)
-        del train_df
-        del X_train
-        del Y_train_root, Y_train_vowel, Y_train_consonant
-
-        datagen = MultiOutputDataGenerator(**datagen_args)
-        # This will just calculate parameters required to augment the given data. This won't perform any augmentations
-        datagen.fit(x_train)
-        
-        # Visualize few samples of current training dataset, including data augmentation
-        preview_data_aug(datagen, x_train, {'out_root': y_train_root, 
-                                           'out_vowel': y_train_vowel, 
-                                           'out_consonant': y_train_consonant}, IMG_SIZE=IMG_SIZE)
-
-        # create custom global accuracy with weights 50%, 25%, 25%
-        global_accuracy_callback = GlobalAccuracyCallback(
-            validation_data = (x_test, [y_test_root, y_test_vowel, y_test_consonant]))
-        
-        # get lr reduction on plateau callbacks
-        lr_reduction_root, lr_reduction_vowel, lr_reduction_consonant = get_lr_reduction_calbacks()
-        
-        # Fit the model
-        history = model.fit(datagen.flow(x_train, {'out_root': y_train_root, 
-                                                   'out_vowel': y_train_vowel, 
-                                                   'out_consonant': y_train_consonant}, 
-                                         batch_size=batch_size),
-                                epochs = epochs, validation_data = (x_test, [y_test_root, y_test_vowel, y_test_consonant]), 
-                                steps_per_epoch=x_train.shape[0] // batch_size, 
-                                callbacks=[lr_reduction_root, lr_reduction_vowel, 
-                                            lr_reduction_consonant, WandbCallback(),
-                                           global_accuracy_callback])
-
-        histories.append(history.history)
-        
-        # save model online
-        model.save(os.path.join(wandb.run.dir, "model_{}.h5".format(i)))
-        np.save(os.path.join(wandb.run.dir, "histories.npy"), histories)
-        
-        # Delete to reduce memory usage
-        del x_train
-        del x_test
-        del y_train_root
-        del y_test_root
-        del y_train_vowel
-        del y_test_vowel
-        del y_train_consonant
-        del y_test_consonant
-        gc.collect()
-
-def train_from_prep(train_df_, datagen_args, name=None, epochs=30, model=None,
-          N_CHANNELS=1, batch_size=256, preprocess_args={'image_size': 64, 'padding': 0},
-          data_path='Data/', prep_folder='prep/', parts=True):
-    IMG_SIZE = preprocess_args['image_size']
+        assert image_width == image_height, "function get_model not yet ready for rectanglurar images"
+        model = get_model(img_size=image_width)
     
-    # set up config
-    config = datagen_args.copy()
-    config['epochs'] = epochs
-    config['name'] = name
-    config.update(preprocess_args)
-    wandb.init(project='mlip', name=name, config=config)
+    # add filename column to train labels df
+    train_df_['filename'] = train_df_['image_id'] + '.png'
 
-    if model == None:
-        model = get_model(img_size=IMG_SIZE)
-    
-    histories = []
-    for i in range(4):
-        train_df = pd.merge(pd.read_parquet(f'{data_path}/{prep_folder}/part{i}.parquet'), train_df_, left_index=True, right_on='image_id').drop(['image_id'], axis=1)
-        
-        # CNN takes images in shape `(batch_size, h, w, channels)`, so reshape the images
-        X_train = train_df.drop(columns=['grapheme_root', 'vowel_diacritic', 'consonant_diacritic']).values.reshape(-1, IMG_SIZE, IMG_SIZE, N_CHANNELS)
-        
-        Y_train_root = pd.get_dummies(train_df['grapheme_root']).values
-        Y_train_vowel = pd.get_dummies(train_df['vowel_diacritic']).values
-        Y_train_consonant = pd.get_dummies(train_df['consonant_diacritic']).values
+    # convert target labels to one-hot encoding
+    # this also returns the ordered labels of the newly created columns
+    train_df_, features = to_one_hot(train_df_, one_hot_columns = ['grapheme_root', 'vowel_diacritic', 'consonant_diacritic'])
+    assert len(features) == 168 + 11 + 7, print(f"found {len(features)} one-hot encoded features")
 
-        print(f'Training images: {X_train.shape}')
-        print(f'Training labels root: {Y_train_root.shape}')
-        print(f'Training labels vowel: {Y_train_vowel.shape}')
-        print(f'Training labels consonants: {Y_train_consonant.shape}')
+    # define data augmentation generator for multiple outputs
+    train_datagen = MultiOutputDataGenerator(**datagen_args)
+    val_datagen = MultiOutputDataGenerator({})
+    # This will just calculate parameters required to augment the given data. This won't perform any augmentations
+    # datagen.fit(x_train)
 
-        # Divide the data into training and validation set
-        x_train, x_test, y_train_root, y_test_root, y_train_vowel, y_test_vowel, y_train_consonant, y_test_consonant = train_test_split(X_train, Y_train_root, Y_train_vowel, Y_train_consonant, test_size=0.08, random_state=666)
-        del train_df
-        del X_train
-        del Y_train_root, Y_train_vowel, Y_train_consonant
+    # Visualize few samples of current training dataset, including data augmentation
+#    preview_data_aug(datagen, x_train, {'out_root': y_train_root,
+#                     'out_vowel': y_train_vowel,
+#                     'out_consonant': y_train_consonant}, IMG_SIZE=IMG_SIZE)
 
-        datagen = MultiOutputDataGenerator(**datagen_args)
-        # This will just calculate parameters required to augment the given data. This won't perform any augmentations
-        datagen.fit(x_train)
-        
-        # Visualize few samples of current training dataset, including data augmentation
-        preview_data_aug(datagen, x_train, {'out_root': y_train_root, 
-                                           'out_vowel': y_train_vowel, 
-                                           'out_consonant': y_train_consonant}, IMG_SIZE=IMG_SIZE)
+    # split the train and validation data
+    train_df, val_df = train_test_split(train_df_, test_size=0.08, random_state=666)
 
-        # create custom global accuracy with weights 50%, 25%, 25%
-        global_accuracy_callback = GlobalAccuracyCallback(
-            validation_data = (x_test, [y_test_root, y_test_vowel, y_test_consonant]))
-        
-        # get lr reduction on plateau callbacks
-        lr_reduction_root, lr_reduction_vowel, lr_reduction_consonant = get_lr_reduction_calbacks()
-        
-        # Fit the model
-        history = model.fit(datagen.flow(x_train, {'out_root': y_train_root, 
-                                                   'out_vowel': y_train_vowel, 
-                                                   'out_consonant': y_train_consonant}, 
-                                         batch_size=batch_size),
-                                epochs = epochs, validation_data = (x_test, [y_test_root, y_test_vowel, y_test_consonant]), 
-                                steps_per_epoch=x_train.shape[0] // batch_size, 
-                                callbacks=[lr_reduction_root, lr_reduction_vowel, 
-                                            lr_reduction_consonant, WandbCallback(),
-                                           global_accuracy_callback])
+    # couple the data generator to the prepared images
+    train_generator = flow_from_prep(train_datagen, df=train_df, prep_path=prep_path, labels=features,
+                                   image_size=(image_width, image_height), batch_size=batch_size)
+    val_generator = flow_from_prep(val_datagen, df=val_df, prep_path=prep_path, labels=features,
+                                   image_size=(image_width, image_height), batch_size=batch_size)
 
-        histories.append(history.history)
-        
-        # save model online
-        model.save(os.path.join(wandb.run.dir, "model_{}.h5".format(i)))
-        np.save(os.path.join(wandb.run.dir, "histories.npy"), histories)
-        
-        # Delete to reduce memory usage
-        del x_train
-        del x_test
-        del y_train_root
-        del y_test_root
-        del y_train_vowel
-        del y_test_vowel
-        del y_train_consonant
-        del y_test_consonant
-        gc.collect()
+    # create custom global accuracy with weights 50%, 25%, 25%
+    global_accuracy_callback = GlobalAccuracyCallback(validation_generator = val_generator)
+
+    # get lr reduction on plateau callbacks
+    lr_reduction_root, lr_reduction_vowel, lr_reduction_consonant = get_lr_reduction_calbacks()
+
+    # Fit the model
+    # wrap the data generator to support multiple output labels
+    history = model.fit(generator_wrapper(train_generator), validation_data = generator_wrapper(val_generator),
+                        epochs = epochs, steps_per_epoch=train_generator.n//train_generator.batch_size,
+                        validation_steps=val_generator.n//val_generator.batch_size,
+                        callbacks=[lr_reduction_root, lr_reduction_vowel, lr_reduction_consonant,
+                                   WandbCallback(), global_accuracy_callback])
+
+    # save model online
+    model.save(os.path.join(wandb.run.dir, "model_{}.h5".format(i)))
+    return model
+
+def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size):
+    return datagen.flow_from_dataframe(dataframe=df,
+                                directory=prep_path,
+                                x_col='filename',
+                                y_col=labels,
+                                class_mode='other',
+                                target_size = image_size,
+                                color_mode='grayscale',
+                                batch_size=batch_size )
+
+def generator_wrapper(generator):
+    labels = ['out_root', 'out_vowel', 'out_consonant']
+    lengths = [168,         11,          7]
+    # create start and end indices (0:168, 168:168+11, ...)
+    stop = list(np.cumsum(lengths))
+    start = [0]
+    start.extend(stop)
+    # sth. with cumsum to improve hard coded below?
+    for batch_x,batch_y in generator:
+        # print("Sum ", np.sum(batch_y))
+        yield (batch_x, {labels[i]: batch_y[:, start[i]:stop[i]] for i in range(3)})
+
+def to_one_hot(df, one_hot_columns = ['grapheme_root', 'vowel_diacritic', 'consonant_diacritic']):
+    # Convert categorical column(s) to one-hot encodings
+    features = []
+
+    for col in one_hot_columns:
+        if col in df.columns:
+            print("Converting {} to one-hot encoding".format(col))
+            onehot = pd.get_dummies(df[col], prefix=col)
+            features.extend(list(onehot.columns))
+            df = pd.merge(onehot, df, left_index=True, right_index=True)
+            df.drop(col, axis=1, inplace=True)
+
+    return df, features
 
 def resize_padding(df, resize_size=64, padding=0, need_progress_bar=True):
     """
@@ -272,53 +238,6 @@ def resize_padding(df, resize_size=64, padding=0, need_progress_bar=True):
     
     resized = pd.DataFrame(resized).T
     return resized
-
-def perform_preprocessing(train_df_, preprocess_args, data_path='Data/', prep_folder='prep/', parts=False):
-    """Perform preprocessing and save results to folder.
-    Parts: wether to save the result in parts (4), or a single parquet file.
-    """
-    IMG_SIZE = preprocess_args['image_size']
-    # set warning if preprocessing is not finished, and the config and actual preprocessing
-    # is thus not necessairily coupled correctly
-    pd.Series({'WARING': "Preprocessing unfinished"}).to_csv(f"{data_path}/{prep_folder}/config.csv", header=False)
-    
-    for i in range(4):
-        print(f"STEP {i+1}/4")
-        train_df = pd.merge(pd.read_parquet(f'{data_path}/train_image_data_{i}.parquet'), 
-                            train_df_, on='image_id')
-        
-        # drop target labels and 'move' image_id information to the index
-        train_df.drop(columns=['grapheme_root', 'vowel_diacritic', 'consonant_diacritic'], inplace=True)
-        train_df.set_index('image_id', inplace=True)
-        # resize images
-        X_train = resize_padding(train_df, resize_size=IMG_SIZE, padding=preprocess_args['padding'])/255
-        del train_df
-        
-        if parts:
-            # save X_train
-            X_train.columns = np.array(list(X_train.columns)).astype("str")
-            X_train.to_parquet(f"{data_path}/{prep_folder}/part{i}.parquet", index=True)
-        else:
-            if i == 0:
-                df = X_train.copy()
-            else:
-                df = df.append(X_train, ignore_index=True)
-        del X_train
-    
-    if not parts:
-        # save combined df
-        df.columns = np.array(list(df.columns)).astype("str")
-        df.to_parquet(f"{data_path}/{prep_folder}/prep.parquet")
-        
-    # save settings
-    pd.Series(preprocess_args).to_csv(f"{data_path}/{prep_folder}/config.csv")
-
-def merge_preprocessing_parts(data_path='Data/', prep_folder='prep/'):
-    df = pd.concat([pd.read_parquet( f"{data_path}/{prep_folder}/part{i}.parquet" ) 
-                    for i in range(4)], ignore_index=True)
-    df.columns = np.array(list(df.columns)).astype("str")
-    df.to_parquet(f"{data_path}/{prep_folder}/prep.parquet")
-
 
 def preview_data_aug(datagen, X, y, IMG_SIZE=64):
     for X_batch, y_batch in datagen.flow(X, y, batch_size=12):
