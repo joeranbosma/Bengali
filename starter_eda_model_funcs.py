@@ -60,8 +60,7 @@ def get_dummies(df):
         cols.append(pd.get_dummies(df[col].astype(str)))
     return pd.concat(cols, axis=1)
 
-def get_model(img_size = 64, 
-              loss_weights={'out_root': 2., 'out_vowel': 1., 'out_consonant': 1.}):
+def get_model(img_size = 64, loss_weights=[0.5, 0.25, 0.25]):
     inputs = Input(shape = (img_size, img_size, 1))
 
     model = Conv2D(filters=32, kernel_size=(3, 3), padding='SAME', activation='relu')(inputs)
