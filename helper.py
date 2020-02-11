@@ -79,6 +79,11 @@ def train(train_df_, datagen_args, name=None, epochs=30, model=None,
         train_df = pd.merge(pd.read_parquet(f'Data/train_image_data_{i}.parquet'), train_df_, on='image_id').drop(['image_id'], axis=1)
         
         X_train = train_df.drop(['grapheme_root', 'vowel_diacritic', 'consonant_diacritic'], axis=1)
+		# Stores it as float32 (but starts as int8, which is more memory efficient)
+		# This is a normalization, which you can also do at the end, so that the 
+		# processing done after this line does not work with float32 but with int8
+		# 255 = scale colour range to 0 to 1.
+		# Preprocessing 4 blocks takes approx 4x1 minute
         X_train = resize_padding(X_train, resize_size=IMG_SIZE, padding=preprocess_args['padding'])/255
         
         # CNN takes images in shape `(batch_size, h, w, channels)`, so reshape the images
