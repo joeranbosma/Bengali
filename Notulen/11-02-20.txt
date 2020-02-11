@@ -1,0 +1,8 @@
+Applied Machine Learning – Notulen 11-02-2020 (Eerste meeting met Alex)
+
+Doel: Niet per se hoog scoren, vooral leren van eigen code, maar ook code van anderen.
+In principe mag je gewoon een kernel pakken en deze inleveren, echter is dit niet de bedoeling. Slimmer om een kernel als baseline te pakken en vervolgens deze aan te passen en te verbeteren.
+Data wordt in 4 verschillende files gegeven, kost te veel RAM om direct in te laden. Oplossing: Pytorch dataset loader. Direct vanuit de file lezen en hierop trainen, dit zou snel genoeg moeten zijn voor training omdat de bottleneck waarschijnlijk bij de GPU ligt.
+Veel leren: waarom resnet werkt, wat een convnet is, etc... Maak vooral een overzicht.
+In verslag laten zien welke artikelen gelezen zijn en wat je precies geleerd hebt. Laat zien dat je begrijpt wat je hebt gelezen/gedaan en waarom.
+Je kunt geometric mean pakken van verschillende scores om de totale score te boosten.
