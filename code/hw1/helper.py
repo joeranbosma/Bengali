@@ -142,7 +142,7 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
                                    image_size=(image_width, image_height), batch_size=batch_size)
     
     # preview data augmentation
-    preview_data_aug(val_generator)
+    preview_data_aug(train_generator)
 
     # create custom global accuracy with weights 50%, 25%, 25%
     global_accuracy_callback = GlobalAccuracyCallback(validation_generator = val_generator)
