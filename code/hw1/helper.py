@@ -140,6 +140,9 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
                                    image_size=(image_width, image_height), batch_size=batch_size)
     val_generator = flow_from_prep(val_datagen, df=val_df, prep_path=prep_path, labels=features,
                                    image_size=(image_width, image_height), batch_size=batch_size)
+    
+    # preview data augmentation
+    preview_data_aug(val_generator)
 
     # create custom global accuracy with weights 50%, 25%, 25%
     global_accuracy_callback = GlobalAccuracyCallback(validation_generator = val_generator)
@@ -239,13 +242,21 @@ def resize_padding(df, resize_size=64, padding=0, need_progress_bar=True):
     resized = pd.DataFrame(resized).T
     return resized
 
-def preview_data_aug(datagen, X, y, IMG_SIZE=64):
-    for X_batch, y_batch in datagen.flow(X, y, batch_size=12):
-        f, axes = plt.subplots(nrows=3, ncols=4, figsize=(16, 8))
-        axes = np.ravel(axes)
-        # create a grid of 4x3 images
-        for i, ax in enumerate(axes):
-            ax.imshow(X_batch[i].reshape(-1).reshape(IMG_SIZE, IMG_SIZE).astype(np.float64))
-        # show the plot
-        plt.show()
-        break
+def preview_data_aug(val_generator, nrows=3, ncols=4):
+    f, axes = plt.subplots(nrows, ncols, figsize=(ncols*3, nrows*3))
+    x_batch, y_batch = val_generator.next()
+    for i, (ax, x) in enumerate(zip(np.ravel(axes), x_batch)):
+        ax.imshow(x.squeeze(), cmap='gray')
+        ax.set_axis_off()
+    plt.show()
+
+# def preview_data_aug(datagen, X, y, IMG_SIZE=64):
+#     for X_batch, y_batch in datagen.flow(X, y, batch_size=12):
+#         f, axes = plt.subplots(nrows=3, ncols=4, figsize=(16, 8))
+#         axes = np.ravel(axes)
+#         # create a grid of 4x3 images
+#         for i, ax in enumerate(axes):
+#             ax.imshow(X_batch[i].reshape(-1).reshape(IMG_SIZE, IMG_SIZE).astype(np.float64))
+#         # show the plot
+#         plt.show()
+#         break
