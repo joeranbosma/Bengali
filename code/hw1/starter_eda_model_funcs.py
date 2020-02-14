@@ -154,6 +154,16 @@ class MultiOutputDataGenerator(tf.keras.preprocessing.image.ImageDataGenerator):
 
             yield flowx, target_dict
 
+def global_acc_lr_reduction_calback(patience=3, verbose=1, factor=0.5, min_lr=0.00001):
+    # Set a learning rate annealer. Learning rate will be half after 3 epochs if accuracy is not increased
+    learning_rate_reduction = ReduceLROnPlateau(monitor='val_global_accuracy', 
+                                                patience=3, 
+                                                verbose=1,
+                                                factor=0.5, 
+                                                min_lr=0.00001)
+    return learning_rate_reduction
+
+
 def get_lr_reduction_calbacks(patience=3, verbose=1, factor=0.5, min_lr=0.00001):
     # Set a learning rate annealer. Learning rate will be half after 3 epochs if accuracy is not increased
     learning_rate_reduction_root = ReduceLROnPlateau(monitor='out_root_acc', 

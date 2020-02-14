@@ -31,8 +31,9 @@ import tensorflow.keras.backend as K
 import wandb
 from wandb.keras import WandbCallback
 from starter_eda_model_funcs import get_model, resize, MultiOutputDataGenerator
-from starter_eda_model_funcs import get_lr_reduction_calbacks
-from preprocessing import perform_preprocessing
+from starter_eda_model_funcs import get_lr_reduction_calbacks, global_acc_lr_reduction_calback
+from preprocessing import perform_preprocessing, test_config
+from cross_validation_helper import cv_train_val_split
 
 
 # adapted from https://github.com/keras-team/keras/issues/4506
@@ -71,7 +72,8 @@ class GlobalAccuracyCallback(tf.keras.callbacks.Callback):
 # added WandB integration and custom datagen arguments
 def train_from_prep(datagen_args, name=None, epochs=30, model=None,
                     N_CHANNELS=1, batch_size=256, preprocess_args={'image_width': 64, 'image_height': 64, 'padding': 6},
-          data_path='Data/', prep_folder='prep/'):
+          data_path='Data/', prep_folder='prep/', model_path='Model/',
+                   cross_val_parts=8, cross_val_num=0):
     """Train a model from preprocessed images.
         
         Preprocessing can be done in advance, then the prep_folder should contain
@@ -81,23 +83,13 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
     
     # set variables and load training labels
     image_width, image_height = preprocess_args['image_width'], preprocess_args['image_height']
-    if image_width == image_height:
-        preprocess_args['image_size'] = image_width
     prep_path = data_path + prep_folder
 
     # check if preprocessing has been done, and coincides with current arguments
-    if os.path.exists(prep_path + 'config.csv'):
-        # check preprocessing arguments, and convert from DataFrame to Series
-        prep_config = pd.read_csv(prep_path + 'config.csv', index_col=0, header=None).iloc[:,0]
-        if not prep_config.equals(pd.Series(preprocess_args)):
-            # preprocessing arguments do not coince, so
-            # preprocessing needs to be done with new arguments
-            print("Preprocessing arguments changed. Performing data preprocessing...")
-            perform_preprocessing(preprocess_args, data_path=data_path, prep_folder=prep_folder, out='png')
-    else:
+    success = test_config(preprocess_args, prep_path=prep_path)
+    if success <= 1:
         print("Performing data preprocessing...")
         perform_preprocessing(preprocess_args, data_path=data_path, prep_folder=prep_folder, out='png')
-
 
     # read train labels
     train_df_ = pd.read_csv(f'{data_path}/train.csv')
@@ -107,8 +99,10 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
     config['epochs'] = epochs
     config['name'] = name
     config.update(preprocess_args)
+    if image_width == image_height:
+        config['image_size'] = image_width
     wandb.init(project='mlip', name=name, config=config)
-
+    
     if model == None:
         assert image_width == image_height, "function get_model not yet ready for rectanglurar images"
         model = get_model(img_size=image_width)
@@ -126,14 +120,10 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
     val_datagen = MultiOutputDataGenerator({})
     # This will just calculate parameters required to augment the given data. This won't perform any augmentations
     # datagen.fit(x_train)
-
-    # Visualize few samples of current training dataset, including data augmentation
-#    preview_data_aug(datagen, x_train, {'out_root': y_train_root,
-#                     'out_vowel': y_train_vowel,
-#                     'out_consonant': y_train_consonant}, IMG_SIZE=IMG_SIZE)
-
+    
     # split the train and validation data
-    train_df, val_df = train_test_split(train_df_, test_size=0.08, random_state=666)
+    # train_df, val_df = train_test_split(train_df_, test_size=0.08, random_state=576)
+    train_df, val_df = cv_train_val_split(train_df_, cross_val_num=cross_val_num, cross_val_parts=cross_val_parts, random_state=576)
 
     # couple the data generator to the prepared images
     train_generator = flow_from_prep(train_datagen, df=train_df, prep_path=prep_path, labels=features,
@@ -141,25 +131,24 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
     val_generator = flow_from_prep(val_datagen, df=val_df, prep_path=prep_path, labels=features,
                                    image_size=(image_width, image_height), batch_size=batch_size)
     
-    # preview data augmentation
+    # Visualize few samples of current training dataset, including data augmentation
     preview_data_aug(train_generator)
 
     # create custom global accuracy with weights 50%, 25%, 25%
     global_accuracy_callback = GlobalAccuracyCallback(validation_generator = val_generator)
 
     # get lr reduction on plateau callbacks
-    lr_reduction_root, lr_reduction_vowel, lr_reduction_consonant = get_lr_reduction_calbacks()
+    lr_reduction = global_acc_lr_reduction_calback()
 
     # Fit the model
     # wrap the data generator to support multiple output labels
     history = model.fit(generator_wrapper(train_generator), validation_data = generator_wrapper(val_generator),
                         epochs = epochs, steps_per_epoch=train_generator.n//train_generator.batch_size,
                         validation_steps=val_generator.n//val_generator.batch_size,
-                        callbacks=[lr_reduction_root, lr_reduction_vowel, lr_reduction_consonant,
-                                   global_accuracy_callback, WandbCallback()])
-
-    # save model online
-    model.save(os.path.join(wandb.run.dir, "model-trained.h5"))
+                        callbacks=[lr_reduction, global_accuracy_callback, WandbCallback()])
+    # save model offline
+    save_model(model, model_path=model_path, name=name)
+    
     return model
 
 def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size):
@@ -242,21 +231,61 @@ def resize_padding(df, resize_size=64, padding=0, need_progress_bar=True):
     resized = pd.DataFrame(resized).T
     return resized
 
-def preview_data_aug(val_generator, nrows=3, ncols=4):
+def save_model(model, model_path, name):
+    try:
+        model.save("{}/{}/model-trained-{}.h5".format(model_path, name, time.strftime("%Y%m%d-%H%M%S")))
+    except:
+        print("Model save failed, retrying as model.h5 in current directory")
+        try:
+            model.save("model.h5")
+        except:
+            print("Model save failed again.")
+    
+    # save model online
+    try:
+        model.save(os.path.join(wandb.run.dir, "model-trained.h5"))
+    except:
+        pass
+
+def preview_data_aug(img_generator, nrows=3, ncols=4):
     f, axes = plt.subplots(nrows, ncols, figsize=(ncols*3, nrows*3))
-    x_batch, y_batch = val_generator.next()
+    x_batch, y_batch = img_generator.next()
     for i, (ax, x) in enumerate(zip(np.ravel(axes), x_batch)):
         ax.imshow(x.squeeze(), cmap='gray')
         ax.set_axis_off()
     plt.show()
 
-# def preview_data_aug(datagen, X, y, IMG_SIZE=64):
-#     for X_batch, y_batch in datagen.flow(X, y, batch_size=12):
-#         f, axes = plt.subplots(nrows=3, ncols=4, figsize=(16, 8))
-#         axes = np.ravel(axes)
-#         # create a grid of 4x3 images
-#         for i, ax in enumerate(axes):
-#             ax.imshow(X_batch[i].reshape(-1).reshape(IMG_SIZE, IMG_SIZE).astype(np.float64))
-#         # show the plot
-#         plt.show()
-#         break
+def preview_from_prep(preprocess_args, datagen_args, data_path = 'Data/', prep_folder = 'prep/', 
+                      batch_size=256, nrows=3, ncols=4):
+    """Basically train from prep, without model and training"""
+
+    # set variables and load training labels
+    prep_path = data_path + prep_folder
+    print(f"Flowing from {prep_path}")
+
+    image_width, image_height = preprocess_args['image_width'], preprocess_args['image_height']
+
+    # read train labels
+    train_df_ = pd.read_csv(f'{data_path}/train.csv')
+
+    # add filename column to train labels df
+    train_df_['filename'] = train_df_['image_id'] + '.png'
+
+    # convert target labels to one-hot encoding
+    # this also returns the ordered labels of the newly created columns
+    train_df_, features = to_one_hot(train_df_, one_hot_columns = ['grapheme_root', 'vowel_diacritic', 'consonant_diacritic'])
+    assert len(features) == 168 + 11 + 7, print(f"found {len(features)} one-hot encoded features")
+
+    # define data augmentation generator for multiple outputs
+    train_datagen = MultiOutputDataGenerator(**datagen_args)
+    val_datagen = MultiOutputDataGenerator({})
+
+    # split the train and validation data
+    # train_df, val_df = train_test_split(train_df_, test_size=0.08, random_state=666)
+    train_df, val_df = cv_train_val_split(train_df_, cross_val_num=0, cross_val_parts=8, random_state=576)
+
+    # couple the data generator to the prepared images
+    train_generator = flow_from_prep(train_datagen, df=train_df, prep_path=prep_path, labels=features,
+                                    image_size=(image_width, image_height), batch_size=batch_size)
+    
+    preview_data_aug(train_generator, nrows=nrows, ncols=ncols)
