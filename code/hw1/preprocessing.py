@@ -10,6 +10,7 @@ from tqdm import tqdm_notebook as tqdm
 import numpy as np
 import os
 import time, gc
+import pickle
 
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
@@ -32,7 +33,44 @@ import wandb
 from wandb.keras import WandbCallback
 from starter_eda_model_funcs import get_model, resize, MultiOutputDataGenerator
 from starter_eda_model_funcs import get_lr_reduction_calbacks
- 
+
+def write_config(preprocess_args, prep_path='Data/prep/'):
+    with open(f'{prep_path}/config.pickle', 'wb') as handle:
+        pickle.dump(preprocess_args, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return True
+
+# from https://stackoverflow.com/questions/32815640/how-to-get-the-difference-between-two-dictionaries-in-python
+def dict_diffs(a, b):
+    diff_ab = { k : b[k] for k, _ in set(b.items()) - set(a.items()) }
+    diff_ba = { k : a[k] for k, _ in set(a.items()) - set(b.items()) }
+    return diff_ab, diff_ba
+
+def test_config(preprocess_args, prep_path='Data/prep/'):
+    """Checks whether config written to preprocessing folder is equal
+    to the config passed to this function. 
+    Returns: 
+        2 for exact match
+        1 for no new/updated entries
+        0 for new/updated entries
+       -1 for file/folder not found
+    """
+    config_fn = f'{prep_path}/config.pickle'
+    if not os.path.exists(config_fn):
+        return -1 # config file not found
+    
+    # check similarity of config dictionaries
+    with open(config_fn, 'rb') as handle:
+        config = pickle.load(handle)
+        # test if configurations are equal
+        if preprocess_args == config:
+            return 2 # exactly equal!
+        
+        # not exactly equal. check differences
+        diff_new, diff_missing = dict_diffs(preprocess_args, config)
+        print("Config new/changed: {}, config old/missing: {}".format(diff_new, diff_missing))
+        if len(diff_new) == 0: return 1 # probably 'good enough', but be careful!
+        else: return 0 # could still be fine, but be careful!
+
 def perform_preprocessing(preprocess_args, data_path='Data/', prep_folder='prep/', out='parquet'):
     """Perform preprocessing and save results to folder.
     Parts: wether to save the result in parts (4), or a single parquet file.
@@ -44,11 +82,10 @@ def perform_preprocessing(preprocess_args, data_path='Data/', prep_folder='prep/
     if not os.path.exists(prep_path):
         os.makedirs(prep_path)
     
-    
     img_width, img_height = preprocess_args['image_width'], preprocess_args['image_height']
     # set warning if preprocessing is not finished, and the config and actual preprocessing
     # is thus not necessairily coupled correctly
-    pd.Series({'WARING': "Preprocessing unfinished"}).to_csv(f"{prep_path}/config.csv", header=False)
+    write_config({'WARING': "Preprocessing started, but unfinished!"}, prep_path=prep_path)
     
     # perform resizing
     file_names = [f'{data_path}/train_image_data_{i}.parquet' for i in range(4)]
@@ -56,11 +93,10 @@ def perform_preprocessing(preprocess_args, data_path='Data/', prep_folder='prep/
                    pad=preprocess_args['padding'], out=out)
 
     # save settings
-    pd.Series(preprocess_args).to_csv(f"{prep_path}/config.csv", header=False)
-
+    write_config(preprocess_args, prep_path=prep_path)
 
 # Adapted from source: https://www.kaggle.com/iafoss/image-preprocessing-128x128
-def perform_resize(file_names, prep_path, orig_height=137, orig_width=236, target_height=64, target_width=64, pad=16, out='parquet'):
+def perform_resize(file_names, prep_path, orig_height=137, orig_width=236, target_height=64, target_width=64, pad=16, out='png'):
     x_tot,x2_tot = [],[]
     for i, fname in enumerate(file_names):
         df = pd.read_parquet(fname)
