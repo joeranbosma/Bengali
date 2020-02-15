@@ -9,30 +9,8 @@ import pandas as pd
 from tqdm import tqdm_notebook as tqdm
 import numpy as np
 import os
-import time, gc
-import pickle
-
-import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Model
-from tensorflow.keras.models import clone_model
-from tensorflow.keras.layers import Dense,Conv2D,Flatten,MaxPool2D,Dropout,BatchNormalization, Input
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ReduceLROnPlateau
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix
-import PIL.Image as Image, PIL.ImageDraw as ImageDraw, PIL.ImageFont as ImageFont
-from matplotlib import pyplot as plt
-import seaborn as sns
 import cv2
-
-from tensorflow.keras.metrics import categorical_accuracy, CategoricalAccuracy
-import tensorflow.keras.backend as K
-
-import wandb
-from wandb.keras import WandbCallback
-from starter_eda_model_funcs import get_model, resize, MultiOutputDataGenerator
-from starter_eda_model_funcs import get_lr_reduction_calbacks
+import pickle
 
 def write_config(preprocess_args, prep_path='Data/prep/'):
     with open(f'{prep_path}/config.pickle', 'wb') as handle:
@@ -71,12 +49,13 @@ def test_config(preprocess_args, prep_path='Data/prep/'):
         if len(diff_new) == 0: return 1 # probably 'good enough', but be careful!
         else: return 0 # could still be fine, but be careful!
 
-def perform_preprocessing(preprocess_args, data_path='Data/', prep_folder='prep/', out='parquet'):
+def perform_preprocessing(preprocess_args, train_or_test='train',
+                          data_path='Data/', prep_folder='prep/', out='parquet'):
     """Perform preprocessing and save results to folder.
     Parts: wether to save the result in parts (4), or a single parquet file.
     """
     prep_path = data_path + prep_folder
-    train_df_ = pd.read_csv(f'{data_path}/train.csv')
+    train_df_ = pd.read_csv(f'{data_path}/{train_or_test}.csv')
     
     # Check whether preprocessing folder exists, else, make it.
     if not os.path.exists(prep_path):
@@ -88,7 +67,7 @@ def perform_preprocessing(preprocess_args, data_path='Data/', prep_folder='prep/
     write_config({'WARING': "Preprocessing started, but unfinished!"}, prep_path=prep_path)
     
     # perform resizing
-    file_names = [f'{data_path}/train_image_data_{i}.parquet' for i in range(4)]
+    file_names = [f'{data_path}/{train_or_test}_image_data_{i}.parquet' for i in range(4)]
     perform_resize(file_names, prep_path=prep_path, target_height=img_height, target_width=img_width,
                    pad=preprocess_args['padding'], out=out)
 
