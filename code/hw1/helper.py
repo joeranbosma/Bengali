@@ -41,15 +41,8 @@ class GlobalAccuracyCallback(tf.keras.callbacks.Callback):
     def __init__(self, validation_generator):
         self.val_gen = validation_generator
         self.accs = []
-
-    def eval_acc(self):
-        # obtain metrics for validation set
-        self.val_gen.reset()
-        metrics = self.model.evaluate(generator_wrapper(self.val_gen), verbose=0,
-                                      steps=self.val_gen.n // self.val_gen.batch_size)
-        # the metrics will contain out_root_acc, etc. for the individual accuracies
-        metric_labels = self.model.metrics_names
-        
+    
+    def calc_global_acc(self, metrics, metric_labels):
         # calculate global accuracy
         global_acc = 0
         # define weights to each part
@@ -59,6 +52,19 @@ class GlobalAccuracyCallback(tf.keras.callbacks.Callback):
             # search for the index of the accuracy (root/vowel or consonant) in the metric list
             idx = metric_labels.index(key)
             global_acc += metrics[idx] * weight
+
+        return global_acc
+    
+    def eval_acc(self):
+        # obtain metrics for validation set
+        self.val_gen.reset()
+        metrics = self.model.evaluate(generator_wrapper(self.val_gen), verbose=0,
+                                      steps=self.val_gen.n // self.val_gen.batch_size)
+        # the metrics will contain out_root_acc, etc. for the individual accuracies
+        metric_labels = self.model.metrics_names
+        
+        # calculate global accuracy
+        global_acc = self.calc_global_acc(metrics, metric_labels)
 
         return global_acc
 
@@ -129,7 +135,8 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
     train_generator = flow_from_prep(train_datagen, df=train_df, prep_path=prep_path, labels=features,
                                    image_size=(image_width, image_height), batch_size=batch_size)
     val_generator = flow_from_prep(val_datagen, df=val_df, prep_path=prep_path, labels=features,
-                                   image_size=(image_width, image_height), batch_size=batch_size)
+                                   image_size=(image_width, image_height), batch_size=batch_size,
+                                   shuffle=False)
     
     # Visualize few samples of current training dataset, including data augmentation
     preview_data_aug(train_generator)
@@ -151,7 +158,7 @@ def train_from_prep(datagen_args, name=None, epochs=30, model=None,
     
     return model
 
-def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size):
+def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size, shuffle=True):
     return datagen.flow_from_dataframe(dataframe=df,
                                 directory=prep_path,
                                 x_col='filename',
@@ -159,7 +166,8 @@ def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size):
                                 class_mode='other',
                                 target_size = image_size,
                                 color_mode='grayscale',
-                                batch_size=batch_size )
+                                batch_size=batch_size,
+                                shuffle=shuffle)
 
 def generator_wrapper(generator):
     labels = ['out_root', 'out_vowel', 'out_consonant']
@@ -233,7 +241,9 @@ def resize_padding(df, resize_size=64, padding=0, need_progress_bar=True):
 
 def save_model(model, model_path, name):
     try:
-        model.save("{}/{}/model-trained-{}.h5".format(model_path, name, time.strftime("%Y%m%d-%H%M%S")))
+        path = "{}/{}/".format(model_path, name)
+        if not os.path.exists(path): os.makedirs(path)
+        model.save("{}/model-trained-{}.h5".format(path, time.strftime("%Y%m%d-%H%M%S")))
     except:
         print("Model save failed, retrying as model.h5 in current directory")
         try:

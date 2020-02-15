@@ -72,3 +72,20 @@ def cv_train_val_split_indices(df, cross_val_parts=8, random_state=576, verbose=
     assert (kfold_val_indices[0] != kfold_val_indices[1]).all(), "Index reappeared in two validation splits!"
     
     return kfold_train_indices, kfold_val_indices
+
+""""
+    Realised that the code above could be faster, with the code below. But this would void the current cross validation splits
+    cv_parts = 8
+    all_idx = list(np.arange(202000))
+    np.random.shuffle(all_idx)
+    val_size = int(len(all_idx) / cv_parts)
+    
+    cv_train_idx, cv_val_idx = [], []
+    for k in range(cv_parts):
+        val_start, val_stop = int(k*val_size), int((k+1)*val_size)
+        cv_val_idx.append(  all_idx[val_start:val_stop]  )
+        
+        new_train_idx = all_idx[0: val_start]
+        new_train_idx.extend( all_idx[val_stop:] )
+        cv_train_idx.append(  new_train_idx  )
+"""
