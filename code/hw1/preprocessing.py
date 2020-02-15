@@ -50,11 +50,10 @@ def test_config(preprocess_args, prep_path='Data/prep/'):
         else: return 0 # could still be fine, but be careful!
 
 def perform_preprocessing(preprocess_args, train_or_test='train',
-                          data_path='Data/', prep_folder='prep/', out='parquet'):
+                          data_path='Data/', prep_path='prep/', out='parquet'):
     """Perform preprocessing and save results to folder.
     Parts: wether to save the result in parts (4), or a single parquet file.
     """
-    prep_path = data_path + prep_folder
     train_df_ = pd.read_csv(f'{data_path}/{train_or_test}.csv')
     
     # Check whether preprocessing folder exists, else, make it.
