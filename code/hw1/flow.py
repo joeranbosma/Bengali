@@ -18,6 +18,7 @@ import wandb
 from wandb.keras import WandbCallback
 
 from starter_eda_model_funcs import get_model, MultiOutputDataGenerator, global_acc_lr_reduction_calback
+from starter_eda_model_funcs import val_root_acc_lr_reduction_callback
 from preprocessing import test_config, perform_preprocessing
 from cross_validation_helper import cv_train_val_split
 from helper import GlobalAccuracyCallback, generator_wrapper, to_one_hot
@@ -121,20 +122,23 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
     
     # create custom global accuracy with weights 50%, 25%, 25%
     global_accuracy_callback = GlobalAccuracyCallback(validation_generator = val_generator)
-
+    
     # get lr reduction on plateau callbacks
-    lr_reduction = global_acc_lr_reduction_calback()
+    lr_reduction = val_root_acc_lr_reduction_callback() #global_acc_lr_reduction_calback()
+    
+    # Fit the model, save every 10 epochs
+    for it in range(epochs):
+        # wrap the data generator to support multiple output labels
+        _ = model.fit(generator_wrapper(train_generator), validation_data = generator_wrapper(val_generator),
+                            initial_epoch = it, epochs = it+1, steps_per_epoch=train_generator.n//train_generator.batch_size,
+                            validation_steps=val_generator.n//val_generator.batch_size,
+                            callbacks=[lr_reduction, global_accuracy_callback, WandbCallback()])
 
-    # Fit the model
-    # wrap the data generator to support multiple output labels
-    _ = model.fit(generator_wrapper(train_generator), validation_data = generator_wrapper(val_generator),
-                        epochs = epochs, steps_per_epoch=train_generator.n//train_generator.batch_size,
-                        validation_steps=val_generator.n//val_generator.batch_size,
-                        callbacks=[lr_reduction, global_accuracy_callback, WandbCallback()])
-    
-    # save model offline
-    save_model(model, model_path=model_path, name=name)
-    
+        # save model offline every ten epochs, and after final epoch (if not a multitude of 10 already)
+        if (((it+1) % 10) == 0) or ((it+1) == epochs):
+            print("Saving model after {} epochs.".format(it+1))
+            save_model(model, model_path=model_path, name=f"{name}-{it+1}-epochs")
+
     return model
 
 def evaluate_trained_model(model, datagen_args, preprocess_args, # settings

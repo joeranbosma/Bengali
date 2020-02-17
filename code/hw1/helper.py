@@ -9,24 +9,11 @@ import pandas as pd
 from tqdm import tqdm_notebook as tqdm
 import numpy as np
 import os
-import time, gc
+import time
 
 import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Model
-from tensorflow.keras.models import clone_model
-from tensorflow.keras.layers import Dense,Conv2D,Flatten,MaxPool2D,Dropout,BatchNormalization, Input
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ReduceLROnPlateau
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix
-import PIL.Image as Image, PIL.ImageDraw as ImageDraw, PIL.ImageFont as ImageFont
 from matplotlib import pyplot as plt
-import seaborn as sns
-import cv2
 
-from tensorflow.keras.metrics import categorical_accuracy, CategoricalAccuracy
-import tensorflow.keras.backend as K
 
 import wandb
 from wandb.keras import WandbCallback
