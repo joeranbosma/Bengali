@@ -65,7 +65,7 @@ def generators_from_prep(datagen_args, preprocess_args, # settings
         # this also returns the ordered labels of the newly created columns
         one_hot_columns = ['grapheme_root', 'vowel_diacritic', 'consonant_diacritic']
         train_df_, features = to_one_hot(train_df_, one_hot_columns=one_hot_columns)
-        assert len(features) == 168 + 11 + 7, print(f"found {len(features)} one-hot encoded features")
+        assert len(features) == 168 + 11 + 7, print("found {} one-hot encoded features".format(len(features)))
 
         # split train and validation set
         train_df, val_df = cv_train_val_split(train_df_, cross_val_num=cross_val_num,
@@ -150,14 +150,14 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
         val_glob_acc = wandb.run.summary["val_global_accuracy"]
         if val_glob_acc > val_global_accuracy_best and ep >= min_epoch_upload:
             val_global_accuracy_best = val_glob_acc
-            model_fn = f"model-best.h5"
+            model_fn = "model-best.h5"
             print("Saving new best model, with val global accuracy of {:.6f} to {}".format(val_glob_acc, model_fn))
             model.save(model_fn)
             if webdav_client is not None:
                 print("Uploading async...")
                 # Unload resource
                 kwargs = {
-                    'remote_path': f"{external_path}/model-best-{ep:03d}.h5",
+                    'remote_path': "{}/model-best-{ep:03d}.h5".format(external_path),
                     'local_path': model_fn,
                     'callback': lambda: print("Upload finished.")
                 }
