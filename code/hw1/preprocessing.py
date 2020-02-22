@@ -13,7 +13,7 @@ import cv2
 import pickle
 
 def write_config(preprocess_args, prep_path='Data/prep/'):
-    with open(f'{prep_path}/config.pickle', 'wb') as handle:
+    with open('{}/config.pickle'.format(prep_path), 'wb') as handle:
         pickle.dump(preprocess_args, handle, protocol=pickle.HIGHEST_PROTOCOL)
     return True
 
@@ -32,7 +32,7 @@ def test_config(preprocess_args, prep_path='Data/prep/'):
         0 for new/updated entries
        -1 for file/folder not found
     """
-    config_fn = f'{prep_path}/config.pickle'
+    config_fn = '{}/config.pickle'.format(prep_path)
     if not os.path.exists(config_fn):
         return -1 # config file not found
     
@@ -54,7 +54,7 @@ def perform_preprocessing(preprocess_args, train_or_test='train',
     """Perform preprocessing and save results to folder.
     Parts: wether to save the result in parts (4), or a single parquet file.
     """
-    train_df_ = pd.read_csv(f'{data_path}/{train_or_test}.csv')
+    train_df_ = pd.read_csv('{}/{}.csv'.format(data_path, train_or_test))
     
     # Check whether preprocessing folder exists, else, make it.
     if not os.path.exists(prep_path):
@@ -66,7 +66,7 @@ def perform_preprocessing(preprocess_args, train_or_test='train',
     write_config({'WARING': "Preprocessing started, but unfinished!"}, prep_path=prep_path)
     
     # perform resizing
-    file_names = [f'{data_path}/{train_or_test}_image_data_{i}.parquet' for i in range(4)]
+    file_names = ['{}/{}_image_data_{}.parquet'.format(data_path, train_or_test, i) for i in range(4)]
     perform_resize(file_names, prep_path=prep_path, target_height=img_height, target_width=img_width,
                    pad=preprocess_args['padding'], out=out)
 
@@ -81,7 +81,7 @@ def perform_resize(file_names, prep_path, orig_height=137, orig_width=236, targe
         #the input is inverted
         data = 255 - df.iloc[:, 1:].values.reshape(-1, orig_height, orig_width).astype(np.uint8)
         target_images = []
-        for idx in tqdm(range(len(df)), desc=f'Part {i}'):
+        for idx in tqdm(range(len(df)), desc='Part {}'.format(i)):
             name = df.iloc[idx,0]
             #normalize each image by its max val (colour intensity of signs wrt eachother)
             img = (data[idx]*(255.0/data[idx].max())).astype(np.uint8)
@@ -92,8 +92,8 @@ def perform_resize(file_names, prep_path, orig_height=137, orig_width=236, targe
             
             # check if writing to individual png files or parquet part files
             if out == 'png':
-                 success = cv2.imwrite(f'{prep_path}/{name}.png', img)
-#                 img_out.writestr(f'{prep_path}/{name}.png', img)
+                 success = cv2.imwrite('{}/{}.png'.format(prep_path, name), img)
+#                 img_out.writestr('{}/{}.png'.format(prep_path, name), img)
             else:
                  target_images.append(np.ravel(img)) # maybe need .copy() too
     
@@ -102,7 +102,7 @@ def perform_resize(file_names, prep_path, orig_height=137, orig_width=236, targe
             df_prep = pd.DataFrame(data=target_images, index=df.index)
             # parquet files require string columns
             df_prep.columns = np.array(list(df_prep.columns)).astype("str")
-            df_prep.to_parquet(f'{prep_path}/part{i}.parquet')
+            df_prep.to_parquet('{}/part{}.parquet'.format(prep_path, i))
     
     # calculate statistics of images
     img_mean = np.mean(x_tot)
@@ -110,7 +110,7 @@ def perform_resize(file_names, prep_path, orig_height=137, orig_width=236, targe
     pd.Series(dict(
         img_mean = img_mean,
         img_std  = img_std,
-    )).to_csv(f'{prep_path}/stats.csv', header=False)
+    )).to_csv('{}/stats.csv'.format(prep_path), header=False)
 
 def bbox(img):
     rows = np.any(img, axis=1)
