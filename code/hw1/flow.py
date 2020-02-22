@@ -95,7 +95,7 @@ def generators_from_prep(datagen_args, preprocess_args, # settings
 def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, model=None,  # settings
           cross_val_num=0, cross_val_parts=8,  # cross-validation settings
           show_data_aug=True,  # other
-          webdav_client=None,  # upload models to webdav client
+          webdav_client=None, min_epoch_upload=10,# upload models to webdav client
           data_path='Data/', prep_path='Data/prep/', model_path='Model/'):  # folders
     """Train a model from preprocessed images.
 
@@ -148,13 +148,20 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
 
         # check global validation accuracy
         val_glob_acc = wandb.run.summary["val_global_accuracy"]
-        if val_glob_acc > val_global_accuracy_best:
+        if val_glob_acc > val_global_accuracy_best and ep >= min_epoch_upload:
             val_global_accuracy_best = val_glob_acc
-            print("Saving new best model, with val global accuracy of {}".format(val_glob_acc))
-            model.save("model-best-{:.02d}.h5")
+            model_fn = f"model-best.h5"
+            print("Saving new best model, with val global accuracy of {:.6f} to {}".format(val_glob_acc, model_fn))
+            model.save(model_fn)
             if webdav_client is not None:
-                webdav_client.upload_sync(remote_path=f"/{model_path}/{name}/model-best-{ep:.02d}.h5",
-                                          local_path=f"model-best-{ep:.02d}.h5")
+                print("Uploading async...")
+                # Unload resource
+                kwargs = {
+                    'remote_path': f"{external_path}/model-best-{ep:03d}.h5",
+                    'local_path': model_fn,
+                    'callback': lambda: print("Upload finished.")
+                }
+                webdav_client.upload_async(**kwargs)
 
     return model
 
