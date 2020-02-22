@@ -47,7 +47,7 @@ def generators_from_prep(datagen_args, preprocess_args, # settings
         perform_preprocessing(preprocess_args, data_path=data_path, prep_path=prep_path, out='png')
 
     # read train labels
-    train_df_ = pd.read_csv(f'{data_path}/{train_or_test}.csv')
+    train_df_ = pd.read_csv('{}/{}.csv'.format(data_path, train_or_test))
 
     # add filename column to train labels df
     train_df_['filename'] = train_df_['image_id'] + '.png'
@@ -124,7 +124,7 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
 
     # create folder in webdav client
     if webdav_client is not None:
-        webdav_client.execute_request("mkdir", f'/{model_path}/{name}/')
+        webdav_client.execute_request("mkdir", '/{}/{}/'.format(model_path, name))
 
     # set up config and start Weights & Biases run
     config = datagen_args.copy()
