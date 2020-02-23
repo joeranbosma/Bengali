@@ -13,14 +13,15 @@ data as images, and accept the multi-output."""
 import numpy as np
 import pandas as pd
 from tqdm import tqdm as tqdm
+import gc
 
 import wandb
 from wandb.keras import WandbCallback
-from tensorflow.keras.callbacks import ModelCheckpoint
 
 from starter_eda_model_funcs import get_model, MultiOutputDataGenerator, global_acc_lr_reduction_calback
 from starter_eda_model_funcs import val_root_acc_lr_reduction_callback
 from preprocessing import test_config, perform_preprocessing
+from preprocessing import crop_resize
 from cross_validation_helper import cv_train_val_split
 from helper import GlobalAccuracyCallback, generator_wrapper, to_one_hot
 from helper import preview_data_aug, save_model
@@ -90,6 +91,86 @@ def generators_from_prep(datagen_args, preprocess_args, # settings
         preview_data_aug(train_generator)
 
     return train_generator, val_generator
+
+
+# Test submission code from https://www.kaggle.com/ipythonx/keras-grapheme-gridmask-augmix-in-efficientnet
+# Test data generator with preprocessing on the fly
+def test_batch_generator(df, batch_size, SIZE, PAD, HEIGHT=137, WIDTH=236):
+    num_imgs = len(df)
+
+    for batch_start in range(0, num_imgs, batch_size):
+        curr_batch_size = min(num_imgs, batch_start + batch_size) - batch_start
+        idx = np.arange(batch_start, batch_start + curr_batch_size)
+
+        names_batch = df.iloc[idx, 0].values
+        imgs_batch = 255 - df.iloc[idx, 1:].values.reshape(-1, HEIGHT, WIDTH).astype(np.uint8)
+        X_batch = np.zeros((curr_batch_size, SIZE, SIZE, 1))
+
+        # perform preprocessing on the fly
+        for j in range(curr_batch_size):
+            img = (imgs_batch[j,]*(255.0/imgs_batch[j,].max())).astype(np.uint8)
+            img = crop_resize(img, orig_height=HEIGHT, orig_width=WIDTH, target_height=SIZE, target_width=SIZE, pad=PAD)
+            img = img[:, :, np.newaxis]
+            X_batch[j,] = img
+
+        yield X_batch, names_batch
+
+
+def predict_with_prep_on_the_fly(model, preprocess_args, data_path='Data/', train_or_test='test',
+                                 batch_size=256):
+    file_names = ["{}/{}_image_data_{}.parquet".format(data_path, train_or_test, i)
+                  for i in range(4)]
+
+    # placeholders
+    row_id = []
+    target = []
+    probs = {}
+
+    # iterative over the test sets
+    for fname in tqdm(file_names):
+        test_ = pd.read_parquet(fname)
+        assert preprocess_args['image_width'] == preprocess_args['image_height'], "rect. images not implemented"
+        test_gen = test_batch_generator(test_, batch_size=batch_size, SIZE=preprocess_args['image_width'],
+                                        PAD=preprocess_args['padding'])
+
+        for batch_x, batch_name in test_gen:
+            batch_predict = model.predict(batch_x)
+            for idx, name in enumerate(batch_name):
+                # save probabilities
+                probs[f"{name}_consonant_diacritic"] = batch_predict[2][idx]
+                probs[f"{name}_grapheme_root"] = batch_predict[0][idx]
+                probs[f"{name}_vowel_diacritic"] = batch_predict[1][idx]
+
+        del test_
+        gc.collect()
+
+    return probs
+
+def evaluate_trained_model(model, datagen_args, preprocess_args, # settings
+                           cross_val_num=0, cross_val_parts=8, # cross-validation settings
+                           name=None, show_data_aug=False, batch_size=256, # other
+                           data_path='Data/', prep_path='Data/prep/'):
+    """Evaluate performance of trained model"""
+
+    if prep_path is not None:
+        # get train and validation generators
+        train_generator, val_generator = generators_from_prep(datagen_args=datagen_args, preprocess_args=preprocess_args,
+                             cross_val_num=cross_val_num, cross_val_parts=cross_val_parts, show_data_aug=show_data_aug,
+                             batch_size=batch_size, data_path=data_path, prep_path=prep_path)
+
+    # obtain metrics for validation set
+    val_generator.reset()
+    metrics = model.evaluate(generator_wrapper(val_generator), verbose=1,
+                             steps=val_generator.n // val_generator.batch_size)
+
+    # the metrics will contain out_root_acc, etc. for the individual accuracies
+    metric_labels = model.metrics_names
+
+    # calculate global accuracy
+    worker = GlobalAccuracyCallback(val_generator)
+    global_accuracy = worker.calc_global_acc(metrics, metric_labels)
+
+    return global_accuracy, metrics, metric_labels
 
 
 def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, model=None,  # settings
@@ -171,14 +252,15 @@ def evaluate_trained_model(model, datagen_args, preprocess_args, # settings
                            data_path='Data/', prep_path='Data/prep/'):
     """Evaluate performance of trained model"""
 
-    # get train and validation generators
-    train_generator, val_generator = generators_from_prep(datagen_args=datagen_args, preprocess_args=preprocess_args,
-                         cross_val_num=cross_val_num, cross_val_parts=cross_val_parts, show_data_aug=show_data_aug,
-                         batch_size=batch_size, data_path=data_path, prep_path=prep_path)
+    if prep_path is not None:
+        # get train and validation generators
+        train_generator, val_generator = generators_from_prep(datagen_args=datagen_args, preprocess_args=preprocess_args,
+                             cross_val_num=cross_val_num, cross_val_parts=cross_val_parts, show_data_aug=show_data_aug,
+                             batch_size=batch_size, data_path=data_path, prep_path=prep_path)
 
     # obtain metrics for validation set
     val_generator.reset()
-    metrics = model.evaluate(generator_wrapper(val_generator), verbose=0,
+    metrics = model.evaluate(generator_wrapper(val_generator), verbose=1,
                              steps=val_generator.n // val_generator.batch_size)
 
     # the metrics will contain out_root_acc, etc. for the individual accuracies
