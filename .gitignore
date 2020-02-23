@@ -1,8 +1,10 @@
 */__pycache__
-/Data
 CNN/.DS_Store
 .DS_Store
 mlip_setup_env.py
 
 .idea
 code/hw1/Develop/.ipynb_checkpoints/
+code/hw1/__pycache__/
+code/hw1/Data/
+code/hw1/models/
