@@ -176,7 +176,7 @@ def evaluate_trained_model(model, datagen_args, preprocess_args, # settings
 def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, model=None,  # settings
           cross_val_num=0, cross_val_parts=8,  # cross-validation settings
           show_data_aug=True,  # other
-          webdav_client=None, min_epoch_upload=10,# upload models to webdav client
+          webdav_client=None, min_epoch_upload=10,external_path='models/',# upload models to webdav client
           data_path='Data/', prep_path='Data/prep/', model_path='Model/'):  # folders
     """Train a model from preprocessed images.
 
