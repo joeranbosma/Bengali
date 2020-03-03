@@ -60,7 +60,7 @@ def get_dummies(df):
         cols.append(pd.get_dummies(df[col].astype(str)))
     return pd.concat(cols, axis=1)
 
-def get_model(downscale,img_size = 64, loss_weights=[0.5, 0.25, 0.25]):
+def get_model_feature_training(downscale,img_size = 64, loss_weights=[0.5, 0.25, 0.25]):
     inputs = Input(shape = (img_size, img_size, 1))
 
     model = Conv2D(filters=32, kernel_size=(3, 3), padding='SAME', activation='relu')(inputs)
@@ -103,8 +103,8 @@ def get_model(downscale,img_size = 64, loss_weights=[0.5, 0.25, 0.25]):
     model = Dropout(rate=0.3)(model)
 	
 	# apply a max pool downscale the resolution to 32x32 using maxpool (2,2)
-	if (downscale and (img_size == 64 or img_size == 128)):
-		model = MaxPool2D(pool_size=(2, 2))(model)
+	if (downscale):
+		model = MaxPool2D(pool_size=(2, 2),strides=(2, 2))(model)
 	
 	# engage in dense models
     model = Flatten()(model)
