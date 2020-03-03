@@ -61,6 +61,7 @@ class GlobalAccuracyCallback(tf.keras.callbacks.Callback):
         self.accs.append(acc)
         wandb.log({'val_global_accuracy': acc}, step=wandb.run.step)
 
+
 def generator_wrapper(generator):
     labels = ['out_root', 'out_vowel', 'out_consonant']
     lengths = [168,         11,          7]
@@ -72,6 +73,7 @@ def generator_wrapper(generator):
     for batch_x,batch_y in generator:
         # print("Sum ", np.sum(batch_y))
         yield (batch_x, {labels[i]: batch_y[:, start[i]:stop[i]] for i in range(3)})
+
 
 def to_one_hot(df, one_hot_columns = ['grapheme_root', 'vowel_diacritic', 'consonant_diacritic']):
     # Convert categorical column(s) to one-hot encodings
@@ -86,6 +88,7 @@ def to_one_hot(df, one_hot_columns = ['grapheme_root', 'vowel_diacritic', 'conso
             df.drop(col, axis=1, inplace=True)
 
     return df, features
+
 
 def save_model(model, model_path, name):
     try:
@@ -104,6 +107,7 @@ def save_model(model, model_path, name):
         model.save(os.path.join(wandb.run.dir, "model-trained.h5"))
     except:
         pass
+
 
 def preview_data_aug(img_generator, nrows=3, ncols=4):
     f, axes = plt.subplots(nrows, ncols, figsize=(ncols*3, nrows*3))

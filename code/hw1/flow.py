@@ -15,6 +15,7 @@ import pandas as pd
 from tqdm import tqdm as tqdm
 import gc
 
+from tensorflow.keras.callbacks import LearningRateScheduler
 import wandb
 from wandb.keras import WandbCallback
 
@@ -174,9 +175,9 @@ def evaluate_trained_model(model, datagen_args, preprocess_args, # settings
 
 
 def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, model=None,  # settings
-          cross_val_num=0, cross_val_parts=8,  # cross-validation settings
+          cross_val_num=0, cross_val_parts=8, lr_scheduler_func=None,  # cross-validation settings
           show_data_aug=True,  # other
-          webdav_client=None, min_epoch_upload=10,external_path='models/',# upload models to webdav client
+          webdav_client=None, min_epoch_upload=10, external_path='models/',# upload models to webdav client
           data_path='Data/', prep_path='Data/prep/', model_path='Model/'):  # folders
     """Train a model from preprocessed images.
 
@@ -190,6 +191,12 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
         assert image_width == image_height, "function get_model not yet ready for rectanglurar images"
         model = get_model(img_size=image_width)
 
+    print(model.metrics_names)
+    # add global accuracy to metrics
+    # loss_no_weight_decay = model.total_loss - sum(model.losses)
+    # model.metrics_tensors.append(loss_no_weight_decay)
+    # model.metrics_names.append('loss_no_weight_decay')
+
     # get train and validation generators
     train_generator, val_generator = generators_from_prep(datagen_args=datagen_args, preprocess_args=preprocess_args,
                                                           cross_val_num=cross_val_num, cross_val_parts=cross_val_parts,
@@ -200,12 +207,17 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
     # create custom global accuracy with weights 50%, 25%, 25%
     global_accuracy_callback = GlobalAccuracyCallback(validation_generator=val_generator)
 
+    # define callbacks
+    callbacks = [global_accuracy_callback]
+    if lr_scheduler_func is not None:
+        callbacks.append(LearningRateScheduler(lr_scheduler_func, verbose=1))
+
     # get lr reduction on plateau callbacks
-    lr_reduction = global_acc_lr_reduction_calback()
+    # lr_reduction = global_acc_lr_reduction_calback()
 
     # create folder in webdav client
-    if webdav_client is not None:
-        webdav_client.execute_request("mkdir", '/{}/{}/'.format(model_path, name))
+    # if webdav_client is not None:
+    #     webdav_client.execute_request("mkdir", '/{}/{}/'.format(model_path, name))
 
     # set up config and start Weights & Biases run
     config = datagen_args.copy()
@@ -216,6 +228,9 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
         config['image_size'] = image_width
     wandb.init(project='mlip', name=name, config=config)
 
+    callbacks.append( WandbCallback(monitor='val_global_accuracy', verbose=1, mode='max',
+                                    log_best_prefix='best_') )
+
     # Fit the model, save every 10 epochs and if global accuracy improved
     val_global_accuracy_best = 0
     for ep in range(1, 1 + epochs):
@@ -223,9 +238,7 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
         _ = model.fit(generator_wrapper(train_generator), validation_data=generator_wrapper(val_generator),
                       initial_epoch=ep - 1, epochs=ep, steps_per_epoch=train_generator.n // train_generator.batch_size,
                       validation_steps=val_generator.n // val_generator.batch_size,
-                      callbacks=[global_accuracy_callback, lr_reduction,
-                                 WandbCallback(monitor='val_global_accuracy', verbose=1, mode='max',
-                                               log_best_prefix='best_')])
+                      callbacks=callbacks)
 
         # check global validation accuracy
         val_glob_acc = wandb.run.summary["val_global_accuracy"]
@@ -238,13 +251,14 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
                 print("Uploading async...")
                 # Unload resource
                 kwargs = {
-                    'remote_path': "{}/model-best-{ep:03d}.h5".format(external_path),
+                    'remote_path': "{}/model-best-{ep:03d}.h5".format(external_path, ep=ep),
                     'local_path': model_fn,
                     'callback': lambda: print("Upload finished.")
                 }
                 webdav_client.upload_async(**kwargs)
 
     return model
+
 
 def evaluate_trained_model(model, datagen_args, preprocess_args, # settings
                            cross_val_num=0, cross_val_parts=8, # cross-validation settings
@@ -272,6 +286,7 @@ def evaluate_trained_model(model, datagen_args, preprocess_args, # settings
 
     return global_accuracy, metrics, metric_labels
 
+
 def preview_from_prep(datagen_args, preprocess_args,
                       cross_val_num=0, cross_val_parts=8, # cross-validation settings
                       batch_size=256, nrows=3, ncols=4, # number of images (let batch_size > #num images)
@@ -286,7 +301,6 @@ def preview_from_prep(datagen_args, preprocess_args,
     preview_data_aug(train_generator, nrows=nrows, ncols=ncols)
 
 
-
 def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size, shuffle=True):
     return datagen.flow_from_dataframe(dataframe=df,
                                 directory=prep_path,
@@ -297,3 +311,23 @@ def flow_from_prep(datagen, df, prep_path, labels, image_size, batch_size, shuff
                                 color_mode='grayscale',
                                 batch_size=batch_size,
                                 shuffle=shuffle)
+
+
+def get_lr_test_scheduler(lr_start, lr_end, num):
+    def lr_scheduler(epoch, lr):
+        lr_range = np.linspace(lr_start, lr_end, num=num)
+        lr = lr_range[epoch]
+        return lr
+    return lr_scheduler
+
+
+def get_pyramid_lr(lr_start=0.01, lr_max=0.5, n_epoch=100, n_epochs_end=10):
+    def lr_pyramid(epoch, lr):
+        n_epoch_half_pyramid = int(np.ceil(n_epoch/2-n_epochs_end/2))
+        lr_range = np.concatenate((
+            np.linspace(lr_start, lr_max, num=n_epoch_half_pyramid),
+            np.linspace(lr_max, lr_start, num=n_epoch_half_pyramid),
+            np.linspace(lr_start, lr_start/10, num=n_epochs_end)))
+        lr = lr_range[epoch]
+        return lr
+    return lr_pyramid
