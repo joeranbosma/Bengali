@@ -191,12 +191,6 @@ def train(datagen_args, preprocess_args, name=None, batch_size=256, epochs=30, m
         assert image_width == image_height, "function get_model not yet ready for rectanglurar images"
         model = get_model(img_size=image_width)
 
-    print(model.metrics_names)
-    # add global accuracy to metrics
-    # loss_no_weight_decay = model.total_loss - sum(model.losses)
-    # model.metrics_tensors.append(loss_no_weight_decay)
-    # model.metrics_names.append('loss_no_weight_decay')
-
     # get train and validation generators
     train_generator, val_generator = generators_from_prep(datagen_args=datagen_args, preprocess_args=preprocess_args,
                                                           cross_val_num=cross_val_num, cross_val_parts=cross_val_parts,
