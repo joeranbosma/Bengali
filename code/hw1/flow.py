@@ -27,11 +27,12 @@ from cross_validation_helper import cv_train_val_split
 from helper import GlobalAccuracyCallback, generator_wrapper, to_one_hot
 from helper import preview_data_aug, save_model
 
-def generators_from_prep(datagen_args, preprocess_args, # settings
-                         cross_val_num=0, cross_val_parts=8, # cross-validation settings
-                         show_data_aug=False, batch_size=256, # other
+
+def generators_from_prep(datagen_args, preprocess_args,               # settings
+                         cross_val_num=0, cross_val_parts=8,          # cross-validation settings
+                         show_data_aug=False, batch_size=256,         # other
                          train_or_test='train',
-                         data_path='Data/', prep_path='Data/prep/'): # folders
+                         data_path='Data/', prep_path='Data/prep/'):  # folders
     """Obtain train and validation generators from preprocessed images.
     
     Preprocessing can be done in advance, then the prep_path should contain
@@ -76,13 +77,13 @@ def generators_from_prep(datagen_args, preprocess_args, # settings
         # test set
         test_df = train_df_
         test_generator = flow_from_prep(val_datagen, df=test_df, prep_path=prep_path, labels=[],
-                                   image_size=(image_width, image_height), batch_size=batch_size,
-                                   shuffle=False)
+                                        image_size=(image_width, image_height), batch_size=batch_size,
+                                        shuffle=False)
         return test_generator
 
     # couple the data generator to the prepared images
     train_generator = flow_from_prep(train_datagen, df=train_df, prep_path=prep_path, labels=features,
-                                   image_size=(image_width, image_height), batch_size=batch_size)
+                                     image_size=(image_width, image_height), batch_size=batch_size)
     val_generator = flow_from_prep(val_datagen, df=val_df, prep_path=prep_path, labels=features,
                                    image_size=(image_width, image_height), batch_size=batch_size,
                                    shuffle=False)
@@ -146,6 +147,7 @@ def predict_with_prep_on_the_fly(model, preprocess_args, data_path='Data/', trai
         gc.collect()
 
     return probs
+
 
 def evaluate_trained_model(model, datagen_args, preprocess_args, # settings
                            cross_val_num=0, cross_val_parts=8, # cross-validation settings
