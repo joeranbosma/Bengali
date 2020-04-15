@@ -1,4 +1,6 @@
-# DeepLearningProject
+# Decipher Bengali Graphemes
+
+This project employs Convolutional Neural Networks to decipher Bengali graphemes, as part of the Bengali.AI challenge on Kaggle, https://www.kaggle.com/c/bengaliai-cv19. 
 
 ## Retrieve data
 The data can be downloaded directly from Kaggle to any/most systems. This required the package `kaggle` to be installed, which can be done with `pip install kaggle`. On Google Colab this is installed by default.  
