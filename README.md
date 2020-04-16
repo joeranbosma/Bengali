@@ -1,6 +1,9 @@
 # Decipher Bengali Graphemes
 
-This project employs Convolutional Neural Networks to decipher Bengali graphemes, as part of the Bengali.AI challenge on Kaggle, https://www.kaggle.com/c/bengaliai-cv19. 
+This project employs Convolutional Neural Networks to decipher Bengali graphemes, as part of the Bengali.AI challenge on Kaggle, https://www.kaggle.com/c/bengaliai-cv19.  
+
+## Report
+A report of our most important findings is available at [Report Bengali Competition.pdf](https://github.com/joeranbosma/Bengali/blob/master/Report%20Bengali%20Competition.pdf). 
 
 ## Retrieve data
 The data can be downloaded directly from Kaggle to any/most systems. This required the package `kaggle` to be installed, which can be done with `pip install kaggle`. On Google Colab this is installed by default.  
